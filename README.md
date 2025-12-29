@@ -528,3 +528,353 @@ with open('sample01.zip', 'wb') as fd:
 ```bash
 unzip -o sample01.zip
 ```
+7 - Verificação do arquivo alterations.tsv
+```python
+import pandas as pd
+pd.read_csv('/content/alterations.tsv',sep='\t',index_col=False, engine= 'python')
+```
+8 - Verificação do arquivo biomarkers.tsv
+```python
+import pandas as pd
+pd.read_csv('/content/biomarkers.tsv',sep='\t',index_col=False, engine= 'python')
+```
+9 - Alterar o nome do arquivo alterations.tsv, para não misturar com o gerado sem filtro
+```python
+mv alterations.tsv alterations_filtered.tsv #troca de nome do arquivo final, para não confundir
+```
+
+10 - Comparativo entre a amostra sem filtro vs amostra filtrada, gerando um gráfico de interceção de tabelas
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+# 1. DEFINIÇÃO DOS CAMINHOS (Conforme você passou)
+path_geral = '/content/Pipeline-final-somaticas/alterations.tsv'
+path_filtrado = '/content/alterations_filtered.tsv'
+
+# Verificação de segurança
+if not os.path.exists(path_geral) or not os.path.exists(path_filtrado):
+    print("⚠️ Atenção: Verifique se os nomes dos arquivos e pastas estão corretos no seu Drive/Colab.")
+else:
+    # 2. CARREGAMENTO DOS DADOS
+    # O CGI usa tabulação (\t) como separador
+    df_geral = pd.read_csv(path_geral, sep='\t')
+    df_filtrado = pd.read_csv(path_filtrado, sep='\t')
+
+    # 3. CRIAÇÃO DE UMA CHAVE ÚNICA PARA COMPARAÇÃO
+    # Usamos Amostra + CHR + POS + REF + ALT para garantir que o "match" seja perfeito
+    def create_key(df, sample_col, chr_col, pos_col, ref_col, alt_col):
+        return (df[sample_col].astype(str) + "_" +
+                df[chr_col].astype(str).str.replace('chr', '') + "_" +
+                df[pos_col].astype(str) + "_" +
+                df[ref_col].astype(str) + "_" +
+                df[alt_col].astype(str))
+
+    # Adaptando nomes de colunas (o CGI costuma variar entre CHROMOSOME e CHR)
+    chr_col_geral = 'CHR' if 'CHR' in df_geral.columns else 'CHROMOSOME'
+    chr_col_filt = 'CHR' if 'CHR' in df_filtrado.columns else 'CHROMOSOME'
+
+    df_geral['key'] = create_key(df_geral, 'SAMPLE', chr_col_geral, 'POS', 'REF', 'ALT')
+    df_filtrado['key'] = create_key(df_filtrado, 'SAMPLE', chr_col_filt, 'POS', 'REF', 'ALT')
+
+    # 4. ANÁLISE DE INTERSECÇÃO
+    intersecao = df_geral[df_geral['key'].isin(df_filtrado['key'])]
+
+    # 5. CONTAGEM POR AMOSTRA
+    count_geral = df_geral.groupby('SAMPLE').size().reset_index(name='Total_Geral')
+    count_filt = df_filtrado.groupby('SAMPLE').size().reset_index(name='Total_Filtrado')
+    count_inter = intersecao.groupby('SAMPLE').size().reset_index(name='Interseccao')
+
+    # Unindo os resultados em uma única tabela comparativa
+    resumo = pd.merge(count_geral, count_filt, on='SAMPLE', how='outer')
+    resumo = pd.merge(resumo, count_inter, on='SAMPLE', how='outer').fillna(0)
+
+    # Converter para inteiros
+    for col in ['Total_Geral', 'Total_Filtrado', 'Interseccao']:
+        resumo[col] = resumo[col].astype(int)
+
+    # 6. EXIBIÇÃO DOS RESULTADOS
+    print("📊 RESUMO GLOBAL DA ANÁLISE")
+    print(f"Total de variantes no arquivo GERAL: {len(df_geral)}")
+    print(f"Total de variantes no arquivo FILTRADO: {len(df_filtrado)}")
+    print(f"Total de variantes na INTERSECÇÃO: {len(intersecao)}")
+    print("-" * 50)
+    print("\n📋 TABELA COMPARATIVA POR AMOSTRA (Top 10):")
+    print(resumo.sort_values(by='Total_Filtrado', ascending=False).head(10))
+
+    # 7. VISUALIZAÇÃO (Para o seu Portfólio)
+    plt.figure(figsize=(12, 6))
+    resumo_melt = resumo.melt(id_vars='SAMPLE', value_vars=['Total_Filtrado', 'Interseccao'],
+                              var_name='Tipo', value_name='Quantidade')
+
+    sns.barplot(data=resumo_melt, x='SAMPLE', y='Quantidade', hue='Tipo')
+    plt.xticks(rotation=45)
+    plt.title('Comparação: Variantes Filtradas vs Intersecção com Geral')
+    plt.tight_layout()
+    plt.show()
+
+    # Salvar o resultado para baixar
+    resumo.to_csv('comparativo_detalhado_cgi.csv', index=False)
+    print("\n✅ Arquivo 'comparativo_detalhado_cgi.csv' gerado com sucesso!")
+```
+Geração do dashboard com as variantes filtradas.
+
+```python
+import pandas as pd
+import json
+from google.colab import files
+
+# 1. Carregamento
+try:
+    df_alt = pd.read_csv('/content/alterations_filtered.tsv', sep='\t').fillna('')
+    df_bio = pd.read_csv('/content/biomarkers.tsv', sep='\t').fillna('')
+    print("✅ Arquivos carregados!")
+except:
+    print("❌ Erro nos arquivos. Verifique os caminhos.")
+    raise
+
+# 2. Conversão Segura
+json_alt = json.dumps(df_alt.to_dict(orient='records'))
+json_bio = json.dumps(df_bio.to_dict(orient='records'))
+
+# 3. Template HTML com Contagem Dinâmica de Biomarcadores
+html_template = f"""
+<!DOCTYPE html>
+<html lang="pt-BR" class="light">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Bioinformática | TCC</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <style>
+        :root {{
+            --bg: #f1f5f9; --card: #ffffff;
+            --text-main: #0f172a; --border: #cbd5e1;
+        }}
+        .dark {{
+            --bg: #020617; --card: #0f172a;
+            --text-main: #f8fafc; --border: #1e293b;
+        }}
+        body {{ background: var(--bg); color: var(--text-main); transition: 0.3s; font-family: system-ui; }}
+        .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 1rem; padding: 1.5rem; }}
+
+        /* Estilo DataTables */
+        .dataTables_wrapper {{ color: var(--text-main) !important; }}
+        table.dataTable thead th {{ background: var(--bg) !important; color: var(--text-main) !important; border-bottom: 2px solid var(--border) !important; font-weight: 800 !important; }}
+        table.dataTable tbody td {{ border-bottom: 1px solid var(--border) !important; color: var(--text-main) !important; }}
+
+        /* Badges de Oncogenicidade */
+        .badge {{ padding: 4px 12px; border-radius: 99px; font-weight: bold; font-size: 0.72rem; }}
+        .onco {{ background: #fee2e2; color: #991b1b; border: 1px solid #f87171; }}
+        .pass {{ background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }}
+    </style>
+</head>
+<body class="p-4 md:p-10">
+
+<div class="max-w-7xl mx-auto">
+    <header class="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
+        <div>
+            <h1 class="text-4xl font-black italic text-blue-600">DASHBOARD FINAL</h1>
+            <p class="text-slate-500 font-bold text-xs uppercase tracking-widest">Análise de Amostras e Biomarcadores</p>
+        </div>
+        <div class="flex flex-wrap gap-4 items-end">
+            <div class="flex flex-col">
+                <label class="text-[10px] font-bold uppercase text-slate-500 mb-1">Amostra</label>
+                <select id="sampleSelect" class="card p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-900"></select>
+            </div>
+            <div class="flex flex-col">
+                <label class="text-[10px] font-bold uppercase text-slate-500 mb-1">Filtrar Gene</label>
+                <input type="text" id="geneSearch" placeholder="Ex: TP53" class="card p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-900">
+            </div>
+            <button onclick="toggleTheme()" class="card p-2.5 shadow-sm hover:bg-slate-50 transition">🌓</button>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10 text-center">
+        <div class="card border-l-4 border-l-blue-500 shadow-sm">
+            <p class="text-[10px] font-bold text-slate-400 uppercase">Variantes</p>
+            <h2 id="stat-total" class="text-3xl font-black">0</h2>
+        </div>
+        <div class="card border-l-4 border-l-red-500 shadow-sm">
+            <p class="text-[10px] font-bold text-slate-400 uppercase">Oncogênicas</p>
+            <h2 id="stat-onco" class="text-3xl font-black text-red-500">0</h2>
+        </div>
+        <div class="card border-l-4 border-l-emerald-500 shadow-sm">
+            <p class="text-[10px] font-bold text-slate-400 uppercase">Biomarcadores</p>
+            <h2 id="stat-bio" class="text-3xl font-black text-emerald-500">0</h2>
+        </div>
+        <div class="card flex items-center justify-center shadow-sm">
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="relevantOnly" class="w-4 h-4">
+                <span class="text-[10px] font-bold text-slate-500 uppercase">Apenas Drivers</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+        <div class="card shadow-md">
+            <h3 class="font-bold mb-4 text-slate-400 uppercase text-xs">Distribuição</h3>
+            <div id="oncoChart"></div>
+        </div>
+        <div class="card shadow-md">
+            <h3 class="font-bold mb-4 text-slate-400 uppercase text-xs">Frequência Gênica (Top 10)</h3>
+            <div id="geneChart"></div>
+        </div>
+    </div>
+
+    <div class="space-y-10">
+        <section class="card shadow-lg">
+            <h2 class="text-xl font-black mb-6 text-blue-600">🔬 VARIANTES (ALTERATIONS)</h2>
+            <table id="altTable" class="w-full text-sm">
+                <thead><tr><th>Amostra</th><th>Gene</th><th>Proteína</th><th>Tipo</th><th>Sumário</th><th>Predição</th></tr></thead>
+            </table>
+        </section>
+
+        <section class="card shadow-lg">
+            <h2 class="text-xl font-black mb-6 text-emerald-600">💊 BIOMARCADORES E DROGAS</h2>
+            <table id="bioTable" class="w-full text-sm">
+                <thead><tr><th>Amostra</th><th>Alteração</th><th>Droga</th><th>Doença</th><th>Resposta</th><th>Evidência</th></tr></thead>
+            </table>
+        </section>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+<script>
+    const altData = {json_alt};
+    const bioData = {json_bio};
+    let altTable, bioTable, oncoChart, geneChart;
+
+    function toggleTheme() {{
+        const isDark = document.documentElement.classList.toggle('dark');
+        const mode = isDark ? 'dark' : 'light';
+        const color = isDark ? '#f8fafc' : '#0f172a';
+        oncoChart.updateOptions({{ theme: {{ mode }}, chart: {{ foreColor: color }} }});
+        geneChart.updateOptions({{ theme: {{ mode }}, chart: {{ foreColor: color }} }});
+    }}
+
+    function init() {{
+        // Setup Amostras
+        const samples = [...new Set(altData.map(d => d['SAMPLE']))].sort();
+        const select = document.getElementById('sampleSelect');
+        select.innerHTML = '<option value="">Todas</option>' + samples.map(s => `<option value="${{s}}">${{s}}</option>`).join('');
+
+        // Tabela Alt
+        altTable = $('#altTable').DataTable({{
+            data: altData,
+            columns: [
+                {{ data: 'SAMPLE' }},
+                {{ data: 'CGI-Gene', render: d => `<b class="text-blue-600 font-bold">${{d}}</b>` }},
+                {{ data: 'CGI-Protein Change' }},
+                {{ data: 'CGI-Type' }},
+                {{ data: 'CGI-Oncogenic Summary', render: d => {{
+                    const isO = (d||'').toLowerCase().includes('oncogenic');
+                    return `<span class="badge ${{isO ? 'onco' : 'pass'}}">${{d}}</span>`;
+                }} }},
+                {{ data: 'CGI-Oncogenic Prediction' }}
+            ]
+        }});
+
+        // Tabela Bio
+        bioTable = $('#bioTable').DataTable({{
+            data: bioData,
+            columns: [
+                {{ data: 'Sample ID' }}, {{ data: 'Alterations' }}, {{ data: 'Drugs' }}, {{ data: 'Diseases' }},
+                {{ data: 'Response' }},
+                {{ data: 'Evidence', render: d => `<span class="bg-blue-600 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-bold mx-auto">${{d}}</span>` }}
+            ]
+        }});
+
+        // Inicia Gráficos
+        const isDark = document.documentElement.classList.contains('dark');
+        const textColor = isDark ? '#f8fafc' : '#0f172a';
+
+        oncoChart = new ApexCharts(document.querySelector("#oncoChart"), {{
+            chart: {{ type: 'donut', height: 280, foreColor: textColor }},
+            labels: ['Oncogênico', 'Outros'],
+            series: [0, 0],
+            colors: ['#ef4444', '#94a3b8']
+        }});
+        oncoChart.render();
+
+        geneChart = new ApexCharts(document.querySelector("#geneChart"), {{
+            chart: {{ type: 'bar', height: 280, toolbar: {{show:false}}, foreColor: textColor }},
+            series: [{{ name: 'Mutas', data: [] }}],
+            xaxis: {{ categories: [] }},
+            colors: ['#3b82f6'],
+            plotOptions: {{ bar: {{ borderRadius: 6, horizontal: true }} }}
+        }});
+        geneChart.render();
+
+        // Listeners
+        $('#sampleSelect, #relevantOnly, #geneSearch').on('change keyup', () => {{
+            altTable.draw(); bioTable.draw(); updateStats();
+        }});
+
+        // Filtro DataTables
+        $.fn.dataTable.ext.search.push((settings, data, idx, row) => {{
+            const sample = $('#sampleSelect').val();
+            const relevant = $('#relevantOnly').is(':checked');
+            const geneSearch = $('#geneSearch').val().toUpperCase();
+
+            const rSample = data[0];
+            const rGene = data[1].toUpperCase();
+            const rSum = data[4].toLowerCase();
+
+            if (sample && rSample !== sample) return false;
+            if (geneSearch && !rGene.includes(geneSearch)) return false;
+            if (relevant && settings.nTable.id === 'altTable' && !rSum.includes('oncogenic')) return false;
+
+            return true;
+        }});
+
+        updateStats();
+    }}
+
+    function updateStats() {{
+        const sample = $('#sampleSelect').val();
+        const gene = $('#geneSearch').val().toUpperCase();
+
+        // FILTRO DINÂMICO DE VARIANTES
+        let fAlt = altData;
+        if (sample) fAlt = fAlt.filter(d => d['SAMPLE'] === sample);
+        if (gene) fAlt = fAlt.filter(d => d['CGI-Gene'].toUpperCase().includes(gene));
+
+        // FILTRO DINÂMICO DE BIOMARCADORES (Correção aqui!)
+        let fBio = bioData;
+        if (sample) fBio = fBio.filter(d => d['Sample ID'] === sample);
+        if (gene) fBio = fBio.filter(d => d['Alterations'].toUpperCase().includes(gene));
+
+        const oncoCount = fAlt.filter(d => (d['CGI-Oncogenic Summary']||'').toLowerCase().includes('oncogenic')).length;
+
+        // Atualiza Cards
+        document.getElementById('stat-total').innerText = fAlt.length;
+        document.getElementById('stat-onco').innerText = oncoCount;
+        document.getElementById('stat-bio').innerText = fBio.length;
+
+        // Atualiza Gráficos
+        oncoChart.updateSeries([oncoCount, fAlt.length - oncoCount]);
+        const gFreq = {{}};
+        fAlt.forEach(d => gFreq[d['CGI-Gene']] = (gFreq[d['CGI-Gene']] || 0) + 1);
+        const top = Object.entries(gFreq).sort((a,b) => b[1]-a[1]).slice(0, 10);
+        geneChart.updateOptions({{ xaxis: {{ categories: top.map(x => x[0]) }} }});
+        geneChart.updateSeries([{{ data: top.map(x => x[1]) }}]);
+    }}
+
+    $(document).ready(init);
+</script>
+</body>
+</html>
+"""
+
+# 4. Injeção e Download
+final_html = html_template.replace('{json_alt}', json_alt).replace('{json_bio}', json_bio)
+with open('dashboard_tcc_filtrado.html', 'w', encoding='utf-8') as f:
+    f.write(final_html)
+files.download('dashboard_tcc_filtrado.html')
+```
