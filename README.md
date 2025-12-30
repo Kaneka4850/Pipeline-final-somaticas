@@ -1,19 +1,19 @@
 # Pipeline-final-somaticas
-Esse pipeline tem por objetivo realizar a analise de variantes somaticas de 30 vcfs, primeiramente de forma bruta e pós aplicação de filtros de qualidade, no final realizando o comparativo entre às 2 coortes.
-1) Clonar o repositório.
+## Esse pipeline tem por objetivo realizar a analise de variantes somaticas de 30 vcfs, primeiramente de forma bruta e pós aplicação de filtros de qualidade, no final realizando o comparativo entre às 2 coortes.
+### 1) Clonar o repositório.
 ```bash
 git clone https://github.com/Kaneka4850/Pipeline-final-somaticas.git
 ```
-Após a clonagem do repositório, é necessario a instalação do programa bcftools, para manipulação dos arquivos vcf.
+## Após a clonagem do repositório, é necessario a instalação do programa bcftools, para manipulação dos arquivos vcf.
 ```bash
 sudo apt install bcftools
 ```
-Por fim, realizar a extração dos vcfs, utilizando o comando unzip
+## Por fim, realizar a extração dos vcfs, utilizando o comando unzip
 ```bash
 unzip -o /content/Pipeline-final-somaticas/liftOver-hg38-MF-annotVep.zip
 ```
-2) Realizar a conversão dos arquivos vcf em tsv.
-Devido a dificuldade de realizar a manipulação de arquivos .vcf, iremos realizar a conversão dos arquivos para .tsv, garantindo uma padronização para utilizar o pandas
+## 2) Realizar a conversão dos arquivos vcf em tsv.
+### Devido a dificuldade de realizar a manipulação de arquivos .vcf, iremos realizar a conversão dos arquivos para .tsv, garantindo uma padronização para utilizar o pandas
 ```bash
 # Define o diretório onde os arquivos de entrada estão
 DIR_INPUT="/content/liftOver-hg38-MF-annotVep"
@@ -53,7 +53,7 @@ done
 
 echo "Processamento finalizado. Arquivos salvos em: ${DIR_OUTPUT}/"
 ```
-3) Utilização da biblioteca pandas para gerar os arquivos de risco e de risco alto, lembrando que esse script tem um painel de genes fixos, caso for necessario alterar. Arrumar no código
+## 3) Utilização da biblioteca pandas para gerar os arquivos de risco e de risco alto, lembrando que esse script tem um painel de genes fixos, caso for necessario alterar. Arrumar no código
 
 ```python
 import pandas as pd
@@ -193,7 +193,7 @@ print(f"Arquivo gerado: {OUTPUT_VARIANTS}")
 print(f"Arquivo gerado: {OUTPUT_SAMPLES}")
 ```
 
-Agora, para termos uma analise dos vcfs sem o pré processamento, iremos utilizar um script em python para gerar um dashboard interativo, permitindo assim a verificação das variantes somaticas identificadas. Lembrando que o painel foi submetido ao cgi previamente, devido ao número expressivo de variantes, a analise pode levar em média de 15-30 minutos. Por esse motivo, a analise foi feita previamente.
+### Agora, para termos uma analise dos vcfs sem o pré processamento, iremos utilizar um script em python para gerar um dashboard interativo, permitindo assim a verificação das variantes somaticas identificadas. Lembrando que o painel foi submetido ao cgi previamente, devido ao número expressivo de variantes, a analise pode levar em média de 15-30 minutos. Por esse motivo, a analise foi feita previamente.
 
 ```python
 import pandas as pd
@@ -453,8 +453,10 @@ with open('dashboard_tcc_final_sem_filtro.html', 'w', encoding='utf-8') as f:
 files.download('dashboard_tcc_final_sem_filtro.html')
 ```
 
-Injeção de arquivos no CGI. 
-Após realizar a filtragem dos vcfs em arquivos .tsv, iremos fazer a verificação das variantes relevantes no contexto clínico de mielofibrose. Para injeção no GCI, lembrando que o CGI é uma API, sendo necessario realizar as requisições necessarias
+# Injeção de arquivos no CGI. 
+## Após realizar a filtragem dos vcfs em arquivos .tsv, iremos fazer a verificação das variantes relevantes no contexto clínico de mielofibrose. Para injeção no GCI, lembrando que o CGI é uma API, sendo necessario realizar as requisições necessarias
+### Para obter a chave da API, entre por esse link, realize seu cadastro e gere seu token, lembrando que o Token é pessoal:
+### https://www.cancergenomeinterpreter.org/rest_api
 
 ```bash
 OUTPUT="df_final-cgi.txt"
@@ -477,7 +479,7 @@ echo "--------------------------------------"
 echo "Total de variantes para o CGI: $(tail -n +2 $OUTPUT | wc -l)"
 ```
 
-2 - Geração do Job_id do CGI
+## 2 - Geração do Job_id do CGI
 
 ```python
 import requests
@@ -503,7 +505,7 @@ r = requests.get('https://www.cancergenomeinterpreter.org/api/v1/%s' % job_id, h
 r.json()
 ```
 
-4 - Enriquecimento dos dados via CGI
+## 4 - Enriquecimento dos dados via CGI
 ```python 
 import requests
 job_id = input("Digite seu job_id (Obtido na 3º célula)")
@@ -513,7 +515,7 @@ payload={'action':'logs'}
 r = requests.get('https://www.cancergenomeinterpreter.org/api/v1/%s' % job_id, headers=headers, params=payload)
 r.json()
 ```
-5 - Download do arquivo zipados. (Esperar uns 5 minutos entre o passo 4 e o passo 5)
+## 5 - Download do arquivo zipados. (Esperar uns 5 minutos entre o passo 4 e o passo 5)
 ```python
 import requests
 job_id = input("Digite seu job_id (Obtido na 3º célula)")
@@ -524,26 +526,26 @@ r = requests.get('https://www.cancergenomeinterpreter.org/api/v1/%s' % job_id, h
 with open('sample01.zip', 'wb') as fd:
     fd.write(r._content)
 ```
-6 - Unzip do request gerado
+## 6 - Unzip do request gerado
 ```bash
 unzip -o sample01.zip
 ```
-7 - Verificação do arquivo alterations.tsv
+## 7 - Verificação do arquivo alterations.tsv
 ```python
 import pandas as pd
 pd.read_csv('/content/alterations.tsv',sep='\t',index_col=False, engine= 'python')
 ```
-8 - Verificação do arquivo biomarkers.tsv
+## 8 - Verificação do arquivo biomarkers.tsv
 ```python
 import pandas as pd
 pd.read_csv('/content/biomarkers.tsv',sep='\t',index_col=False, engine= 'python')
 ```
-9 - Alterar o nome do arquivo alterations.tsv, para não misturar com o gerado sem filtro
+## 9 - Alterar o nome do arquivo alterations.tsv, para não misturar com o gerado sem filtro
 ```python
 mv alterations.tsv alterations_filtered.tsv #troca de nome do arquivo final, para não confundir
 ```
 
-10 - Comparativo entre a amostra sem filtro vs amostra filtrada, gerando um gráfico de interceção de tabelas
+## 10 - Comparativo entre a amostra sem filtro vs amostra filtrada, gerando um gráfico de interceção de tabelas
 ```python
 import pandas as pd
 import matplotlib.pyplot as plt
