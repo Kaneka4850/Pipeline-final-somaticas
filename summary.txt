@@ -1,0 +1,29 @@
+===============================
+=== Summary of the analysis ===
+===============================
+
+=== CGI-ANALYSIS ===
+Analysis Code: Somatic TCC
+Analysis ID: c2e4ba4daa29279975be
+CGI version: v23.12.2
+Date: 2025-12-21 05:51:40
+
+=== INPUT ===
+Analysed mutations: 98170
+Analysed cnas: 0
+Analysed fusions: 0
+Total samples: 30
+Cancer type: HEMATO
+Reference genome: hg38
+
+=== ALTERATIONS ===
+Driver mutations: 659
+Predicted and annotated drivers: 11
+Predicted drivers: 628
+Annotated drivers: 20
+
+=== BIOMARKERS ===
+Biomarkers in cancer type: 2663
+Biomarkers in cancer type - Level A: 500
+Biomarkers in other cancer type: 14872
+
