@@ -1,19 +1,19 @@
 # Pipeline-final-somaticas
-## Esse pipeline tem por objetivo realizar a analise de variantes somaticas de 30 vcfs, primeiramente de forma bruta e pós aplicação de filtros de qualidade, no final realizando o comparativo entre às 2 coortes.
+## Esse pipeline tem por objetivo realizar a analise de variantes somaticas de 30 vcfs, podendo ser capaz de analisar mais ou menos vcfs se assim necessario. Abaixo segue o passo-a-passo de como utilizar corretamente o pipeline
+## Parte 1: Filtragem dos VCF e geração dos arquivos filtrados
 ### 1) Clonar o repositório.
 ```bash
 git clone https://github.com/Kaneka4850/Pipeline-final-somaticas.git
 ```
-## Após a clonagem do repositório, é necessario a instalação do programa bcftools, para manipulação dos arquivos vcf.
+## Passo 2: baixar o bcftools para manipulação dos VCFs baixados
 ```bash
 sudo apt install bcftools
 ```
-## Por fim, realizar a extração dos vcfs, utilizando o comando unzip
+## Passo 3: Descompactação dos arquivos zipados, para manipulação posterior
 ```bash
 unzip -o /content/Pipeline-final-somaticas/liftOver-hg38-MF-annotVep.zip
 ```
-## 2) Realizar a conversão dos arquivos vcf em tsv.
-### Devido a dificuldade de realizar a manipulação de arquivos .vcf, iremos realizar a conversão dos arquivos para .tsv, garantindo uma padronização para utilizar o pandas
+## Passo 4: Conversão dos arquivos VCF em arquivos .tsv, aplicando o filtro de qualidade. Resultando em arquivos pré filtrados.
 ```bash
 # Define o diretório onde os arquivos de entrada estão
 DIR_INPUT="/content/liftOver-hg38-MF-annotVep"
@@ -31,7 +31,7 @@ for ARQUIVO in ${DIR_INPUT}/liftOver_WP*_hg19ToHg38.vep.vcf; do
     NOME_BASE=$(basename "$ARQUIVO")
     SAMPLE_ID=$(echo "$NOME_BASE" | cut -d'_' -f2)
 
-    # Define o caminho completo do arquivo de saída (agora dentro da pasta outputs)
+    # Define o caminho completo do arquivo de saída
     OUTPUT_FILE="${DIR_OUTPUT}/liftOver_${SAMPLE_ID}_hg19ToHg38.vep.tsv"
 
     echo "Processando amostra: ${SAMPLE_ID} -> salvando em ${OUTPUT_FILE}"
@@ -46,14 +46,14 @@ for ARQUIVO in ${DIR_INPUT}/liftOver_WP*_hg19ToHg38.vep.vcf; do
     # 3. Adicionar as variantes
     bcftools +split-vep \
     -f '%CHROM\t%POS\t%REF\t%ALT\t%CSQ\t%FILTER\t[%SAMPLE\t%GT\t%DP\t%AD\t%AF\t]\n' \
-    -i 'FMT/DP>=20 && FMT/AF>=0.05' -d -A tab "$ARQUIVO" \
+    -i 'FMT/DP>=20 || FMT/AF>=0.05' -d -A tab "$ARQUIVO" \
     -p x >> "$OUTPUT_FILE"
 
 done
 
 echo "Processamento finalizado. Arquivos salvos em: ${DIR_OUTPUT}/"
 ```
-## 3) Utilização da biblioteca pandas para gerar os arquivos de risco e de risco alto, lembrando que esse script tem um painel de genes fixos, caso for necessario alterar. Arrumar no código
+## Passo 5: Utilização de Python para manipular os arquivos TSV gerados, aplicando os demais parametros, como genes de interesse e consequencias desejadas.
 
 ```python
 import pandas as pd
@@ -63,17 +63,17 @@ import os
 # =========================
 # CONFIGURAÇÃO (ACEITE)
 # =========================
-INPUT_PATTERN = "outputs/*.tsv"   # TSVs derivados do VCF anotado com VEP
+INPUT_PATTERN = "outputs/*.tsv"
 OUTPUT_VARIANTS = "variants_high_risk.tsv"
 OUTPUT_SAMPLES = "sample_risk.tsv"
 
-# Painel fixo exigido
+# Painel fixo
 PANEL_GENES = {
     "TP53", "EZH2", "CBL", "U2AF1", "SRSF2",
     "IDH1", "IDH2", "NRAS", "KRAS"
 }
 
-# Consequences permitidas (exatas)
+# Consequences
 ALLOWED_CONSEQUENCES = [
     "missense_variant",
     "stop_gained",
@@ -126,13 +126,13 @@ for file in files:
     df["VAF"] = df["VAF"].apply(parse_float) if "VAF" in df.columns else 0
 
     # =========================
-    # REGRAS DE FILTRO (EXATAS)
+    # REGRAS DE FILTRO
     # =========================
     mask_gene = df["GENE"].isin(PANEL_GENES)
     mask_filter = df["FILTER"] == "PASS"
     mask_impact = df["IMPACT"].isin(["MODERATE", "HIGH"])
     mask_consequence = df["Consequence"].apply(consequence_ok)
-    mask_quality = (df["DP"] >= 20) | (df["VAF"] >= 0.05)
+    mask_quality = (df["DP"] >= 20) | (df["VAF"] >= 0.05) # A qualidade foi passada aqui também para evitar ruidos
 
     high_risk = df[
         mask_gene &
@@ -144,7 +144,7 @@ for file in files:
     high_risk["SAMPLEID"] = sample_id
 
     # =========================
-    # VARIANTS TABLE
+    # TABELA DE VARIANTES
     # =========================
     if not high_risk.empty:
         all_variants.append(
@@ -163,7 +163,7 @@ for file in files:
         )
 
     # =========================
-    # SAMPLE SUMMARY
+    # RESUMO DAS AMOSTRAS
     # =========================
     summary.append({
         "SAMPLEID": sample_id,
@@ -182,18 +182,36 @@ df_samples = pd.DataFrame(summary)
 df_variants.to_csv(OUTPUT_VARIANTS, sep="\t", index=False)
 df_samples.to_csv(OUTPUT_SAMPLES, sep="\t", index=False)
 
+
+# =========================
+# Calculos simples para ter metrica
+# =========================
+amostras_totais = len(df_samples)
+variantes_risco = df_samples["MAIOR_RISCO"].value_counts()["SIM"]
+porcentagem_risco = (variantes_risco / amostras_totais) * 100
+porcentagem_segura = 100 - porcentagem_risco
+amostras_com_tp53 = df_samples.loc[
+    df_samples["TP53_PRESENTE"] == "SIM", "SAMPLEID"
+].tolist()
+
+
 # =========================
 # RESUMO (<= 10 LINHAS)
 # =========================
+
 print("PROCESSAMENTO FINALIZADO")
 print(f"Nº total de amostras processadas: {len(df_samples)}")
-print(f"Nº de amostras com MAIOR_RISCO = SIM: {(df_samples['MAIOR_RISCO'] == 'SIM').sum()}")
-print(f"Nº de amostras com TP53_PRESENTE = SIM: {(df_samples['TP53_PRESENTE'] == 'SIM').sum()}")
+print(f"Nº de amostras com alto risco (anexadas em {OUTPUT_VARIANTS}) {(df_samples['MAIOR_RISCO'] == 'SIM').sum()}")
+print(f"Nº de amostras com TP53_PRESENTE {(df_samples['TP53_PRESENTE'] == 'SIM').sum()}")
+print(f"As amostras com TP53 presentes são: {', '.join(amostras_com_tp53) if amostras_com_tp53 else 'Nenhuma'}")
+print(f"Porcentagem de amostras com risco elevado: {porcentagem_risco:.2f}%")
+print(f"Porcentagem de amostras sem risco consideravel: {porcentagem_segura:.2f}% ")
 print(f"Arquivo gerado: {OUTPUT_VARIANTS}")
-print(f"Arquivo gerado: {OUTPUT_SAMPLES}")
+print(f"Arquivo gerado: {OUTPUT_SAMPLES}")```
 ```
 
-### Agora, para termos uma analise dos vcfs sem o pré processamento, iremos utilizar um script em python para gerar um dashboard interativo, permitindo assim a verificação das variantes somaticas identificadas. Lembrando que o painel foi submetido ao cgi previamente, devido ao número expressivo de variantes, a analise pode levar em média de 15-30 minutos. Por esse motivo, a analise foi feita previamente.
+## Agora, para termos uma analise dos vcfs sem o pré processamento, iremos utilizar um script em python para gerar um dashboard interativo, permitindo assim a verificação das variantes somaticas identificadas. Lembrando que o painel foi submetido ao cgi previamente, devido ao número expressivo de variantes, a analise pode levar em média de 15-30 minutos. Por esse motivo, a analise foi feita previamente.
+### Extra: Geração de um arquivo HTML dos arquivos VCF submetidos ao CGI sem filtros aplicados, os arquivos enriquecidos encontram-se no repositório do GitHub, para ganhar tempo.
 
 ```python
 import pandas as pd
@@ -219,7 +237,7 @@ html_template = f"""
 <html lang="pt-BR" class="light">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard Bioinformática | TCC</title>
+    <title>Dashboard sem filtro | TCC</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
@@ -301,14 +319,14 @@ html_template = f"""
 
     <div class="space-y-10">
         <section class="card shadow-lg">
-            <h2 class="text-xl font-black mb-6 text-blue-600">🔬 VARIANTES (ALTERATIONS)</h2>
+            <h2 class="text-xl font-black mb-6 text-blue-600">VARIANTES IDENTIFICADAS)</h2>
             <table id="altTable" class="w-full text-sm">
                 <thead><tr><th>Amostra</th><th>Gene</th><th>Proteína</th><th>Tipo</th><th>Sumário</th><th>Predição</th></tr></thead>
             </table>
         </section>
 
         <section class="card shadow-lg">
-            <h2 class="text-xl font-black mb-6 text-emerald-600">💊 BIOMARCADORES E DROGAS</h2>
+            <h2 class="text-xl font-black mb-6 text-emerald-600">BIOMARCADORES IDENTIFICADOS</h2>
             <table id="bioTable" class="w-full text-sm">
                 <thead><tr><th>Amostra</th><th>Alteração</th><th>Droga</th><th>Doença</th><th>Resposta</th><th>Evidência</th></tr></thead>
             </table>
@@ -448,13 +466,13 @@ html_template = f"""
 
 # 4. Injeção e Download
 final_html = html_template.replace('{json_alt}', json_alt).replace('{json_bio}', json_bio)
-with open('dashboard_tcc_final_sem_filtro.html', 'w', encoding='utf-8') as f:
+with open('dashboard_tcc_bruto.html', 'w', encoding='utf-8') as f:
     f.write(final_html)
-files.download('dashboard_tcc_final_sem_filtro.html')
+files.download('dashboard_tcc_bruto.html')
 ```
 
-# Injeção de arquivos no CGI. 
-## Após realizar a filtragem dos vcfs em arquivos .tsv, iremos fazer a verificação das variantes relevantes no contexto clínico de mielofibrose. Para injeção no GCI, lembrando que o CGI é uma API, sendo necessario realizar as requisições necessarias
+# Parte 2: Enriquecimento dos variantes de alto risco via CGI
+## ## Essa parte comtempla da manipulação do arquivo variantes_high_risk.tsv, envio ao CGI por via de API para obtenção de significado clinico.
 ### Para obter a chave da API, entre por esse link, realize seu cadastro e gere seu token, lembrando que o Token é pessoal:
 ### https://www.cancergenomeinterpreter.org/rest_api
 
@@ -545,82 +563,8 @@ pd.read_csv('/content/biomarkers.tsv',sep='\t',index_col=False, engine= 'python'
 mv alterations.tsv alterations_filtered.tsv #troca de nome do arquivo final, para não confundir
 ```
 
-## 10 - Comparativo entre a amostra sem filtro vs amostra filtrada, gerando um gráfico de interceção de tabelas
-```python
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
 
-# 1. DEFINIÇÃO DOS CAMINHOS (Conforme você passou)
-path_geral = '/content/Pipeline-final-somaticas/alterations.tsv'
-path_filtrado = '/content/alterations_filtered.tsv'
 
-# Verificação de segurança
-if not os.path.exists(path_geral) or not os.path.exists(path_filtrado):
-    print("⚠️ Atenção: Verifique se os nomes dos arquivos e pastas estão corretos no seu Drive/Colab.")
-else:
-    # 2. CARREGAMENTO DOS DADOS
-    # O CGI usa tabulação (\t) como separador
-    df_geral = pd.read_csv(path_geral, sep='\t')
-    df_filtrado = pd.read_csv(path_filtrado, sep='\t')
-
-    # 3. CRIAÇÃO DE UMA CHAVE ÚNICA PARA COMPARAÇÃO
-    # Usamos Amostra + CHR + POS + REF + ALT para garantir que o "match" seja perfeito
-    def create_key(df, sample_col, chr_col, pos_col, ref_col, alt_col):
-        return (df[sample_col].astype(str) + "_" +
-                df[chr_col].astype(str).str.replace('chr', '') + "_" +
-                df[pos_col].astype(str) + "_" +
-                df[ref_col].astype(str) + "_" +
-                df[alt_col].astype(str))
-
-    # Adaptando nomes de colunas (o CGI costuma variar entre CHROMOSOME e CHR)
-    chr_col_geral = 'CHR' if 'CHR' in df_geral.columns else 'CHROMOSOME'
-    chr_col_filt = 'CHR' if 'CHR' in df_filtrado.columns else 'CHROMOSOME'
-
-    df_geral['key'] = create_key(df_geral, 'SAMPLE', chr_col_geral, 'POS', 'REF', 'ALT')
-    df_filtrado['key'] = create_key(df_filtrado, 'SAMPLE', chr_col_filt, 'POS', 'REF', 'ALT')
-
-    # 4. ANÁLISE DE INTERSECÇÃO
-    intersecao = df_geral[df_geral['key'].isin(df_filtrado['key'])]
-
-    # 5. CONTAGEM POR AMOSTRA
-    count_geral = df_geral.groupby('SAMPLE').size().reset_index(name='Total_Geral')
-    count_filt = df_filtrado.groupby('SAMPLE').size().reset_index(name='Total_Filtrado')
-    count_inter = intersecao.groupby('SAMPLE').size().reset_index(name='Interseccao')
-
-    # Unindo os resultados em uma única tabela comparativa
-    resumo = pd.merge(count_geral, count_filt, on='SAMPLE', how='outer')
-    resumo = pd.merge(resumo, count_inter, on='SAMPLE', how='outer').fillna(0)
-
-    # Converter para inteiros
-    for col in ['Total_Geral', 'Total_Filtrado', 'Interseccao']:
-        resumo[col] = resumo[col].astype(int)
-
-    # 6. EXIBIÇÃO DOS RESULTADOS
-    print("📊 RESUMO GLOBAL DA ANÁLISE")
-    print(f"Total de variantes no arquivo GERAL: {len(df_geral)}")
-    print(f"Total de variantes no arquivo FILTRADO: {len(df_filtrado)}")
-    print(f"Total de variantes na INTERSECÇÃO: {len(intersecao)}")
-    print("-" * 50)
-    print("\n📋 TABELA COMPARATIVA POR AMOSTRA (Top 10):")
-    print(resumo.sort_values(by='Total_Filtrado', ascending=False).head(10))
-
-    # 7. VISUALIZAÇÃO (Para o seu Portfólio)
-    plt.figure(figsize=(12, 6))
-    resumo_melt = resumo.melt(id_vars='SAMPLE', value_vars=['Total_Filtrado', 'Interseccao'],
-                              var_name='Tipo', value_name='Quantidade')
-
-    sns.barplot(data=resumo_melt, x='SAMPLE', y='Quantidade', hue='Tipo')
-    plt.xticks(rotation=45)
-    plt.title('Comparação: Variantes Filtradas vs Intersecção com Geral')
-    plt.tight_layout()
-    plt.show()
-
-    # Salvar o resultado para baixar
-    resumo.to_csv('comparativo_detalhado_cgi.csv', index=False)
-    print("\n✅ Arquivo 'comparativo_detalhado_cgi.csv' gerado com sucesso!")
-```
 Geração do dashboard com as variantes filtradas.
 
 ```python
@@ -647,7 +591,7 @@ html_template = f"""
 <html lang="pt-BR" class="light">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard Bioinformática | TCC</title>
+    <title>Dashboard Variantes filtradas | TCC</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
@@ -729,14 +673,14 @@ html_template = f"""
 
     <div class="space-y-10">
         <section class="card shadow-lg">
-            <h2 class="text-xl font-black mb-6 text-blue-600">🔬 VARIANTES (ALTERATIONS)</h2>
+            <h2 class="text-xl font-black mb-6 text-blue-600">VARIANTES IDENTIFICADAS)</h2>
             <table id="altTable" class="w-full text-sm">
                 <thead><tr><th>Amostra</th><th>Gene</th><th>Proteína</th><th>Tipo</th><th>Sumário</th><th>Predição</th></tr></thead>
             </table>
         </section>
 
         <section class="card shadow-lg">
-            <h2 class="text-xl font-black mb-6 text-emerald-600">💊 BIOMARCADORES E DROGAS</h2>
+            <h2 class="text-xl font-black mb-6 text-emerald-600">BIOMARCADORES IDENTIFICADOS</h2>
             <table id="bioTable" class="w-full text-sm">
                 <thead><tr><th>Amostra</th><th>Alteração</th><th>Droga</th><th>Doença</th><th>Resposta</th><th>Evidência</th></tr></thead>
             </table>
