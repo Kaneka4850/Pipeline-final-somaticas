@@ -1,4 +1,5 @@
 # Pipeline-final-somaticas
+## **Versão Web:** [![Collab](https://img.shields.io/badge/Open%20Collab-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white)](https://colab.research.google.com/drive/1T9NJpIMR4pfReopyKTMZvqAXKCDCQHZn?usp=sharing)
 ## Esse pipeline tem por objetivo realizar a analise de variantes somaticas de 30 vcfs, podendo ser capaz de analisar mais ou menos vcfs se assim necessario. Abaixo segue o passo-a-passo de como utilizar corretamente o pipeline
 ## Parte 1: Filtragem dos VCF e geração dos arquivos filtrados
 ### 1) Clonar o repositório.
